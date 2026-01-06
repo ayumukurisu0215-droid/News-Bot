@@ -102,7 +102,7 @@ def main():
 
     # 3. メッセージ作成
     today = datetime.now().strftime('%Y/%m/%d')
-    message = f"【NHK重要ニュース {today}】\n\n{summary}"
+    message = f"【重要ニュース {today}】\n\n{summary}"
 
     # 4. LINE送信
     send_line_broadcast(message)
