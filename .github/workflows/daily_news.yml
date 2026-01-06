@@ -1,0 +1,34 @@
+name: Daily News Notification
+
+on:
+  schedule:
+    # 日本時間 朝7:00 に実行
+    # GitHub ActionsはUTC(世界協定時)基準なので、JST-9時間 = 前日22:00に設定する
+    - cron: '0 22 * * *'
+  
+  # 手動実行ボタン（テスト用）を表示する設定
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: リポジトリをチェックアウト
+      uses: actions/checkout@v3
+
+    - name: Pythonのセットアップ
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: ライブラリのインストール
+      run: |
+        pip install -r requirements.txt
+
+    - name: プログラムの実行
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+      run: |
+        python main.py
