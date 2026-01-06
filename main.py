@@ -5,86 +5,107 @@ import google.generativeai as genai
 from datetime import datetime
 
 # --- 設定 ---
-# NHK RSS (主要ニュース)
-# ユーザー指定のURL: https://news.web.nhk/n-data/conf/na/rss/cat0.xml が使える場合はこちらに書き換えてください
-RSS_URL = "https://news.web.nhk/n-data/conf/na/rss/cat0.xml"
+# ユーザー指定のRSS URL
+RSS_URL = "https://www.nhk.or.jp/rss/news/cat0.xml"
 
-# APIキー類の取得 (GitHub Secretsから読み込む)
+# 環境変数からキーを取得
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-LINE_NOTIFY_TOKEN = os.getenv("LINE_NOTIFY_TOKEN")
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 
-def get_nhk_news():
-    """RSSからニュースを取得してリスト形式で返す"""
-    feed = feedparser.parse(RSS_URL)
-    news_list = []
-    
-    # 最新15件程度を取得してAIに渡す
-    for entry in feed.entries[:15]:
-        title = entry.title
-        link = entry.link
-        news_list.append(f"・{title} ({link})")
-    
-    return "\n".join(news_list)
+def get_news():
+    """RSSから記事を取得する"""
+    print(f"RSSを取得中: {RSS_URL}")
+    # タイムアウト設定を追加してフリーズを防ぐ
+    try:
+        feed = feedparser.parse(RSS_URL)
+        
+        if not feed.entries:
+            print("記事が見つかりませんでした。URLがアクセス制限されている可能性があります。")
+            return None
 
-def summarize_with_gemini(news_text):
-    """Geminiで重要なニュースを選別・要約する"""
+        news_text = []
+        # 最新15件を抽出
+        for entry in feed.entries[:15]:
+            title = entry.title
+            link = entry.link
+            news_text.append(f"{title} ({link})")
+        
+        return "\n".join(news_text)
+    except Exception as e:
+        print(f"RSS取得エラー: {e}")
+        return None
+
+def summarize_news(news_data):
+    """Geminiで重要ニュースを選別・要約"""
     genai.configure(api_key=GEMINI_API_KEY)
-    
-    # 2.0 Flashなどの軽量・高速なモデルを指定
-    model = genai.GenerativeModel("models/gemini-2.5-flash") 
+    model = genai.GenerativeModel("models/gemini-2.5-flash") # 動作が速いモデル
 
     prompt = f"""
-    あなたは優秀なニュース編集者です。
-    以下のNHKニュースリストから、特に社会的影響が大きい、または重要度の高いニュースを「最大3つ」選んでください。
-    それぞれを簡潔に要約し、以下のフォーマットで出力してください。
-    冒頭の挨拶などは不要です。
-
-    【出力フォーマット】
-    📰 [タイトル]
-    [要約を2行〜3行で]
-    🔗 [リンク]
-
-    ---
-    ニュースリスト:
-    {news_text}
+    あなたはニュース編集者です。
+    以下のNHKニュースリストから、特に社会的影響の大きい重要なニュースを「最大3本」選んでください。
+    それぞれを「簡潔な要約（3行）」にし、以下の形式で出力してください。
+    
+    【形式】
+    タイトル
+    要約: [ここに要約]
+    リンク
+    
+    【ニュースリスト】
+    {news_data}
     """
-
+    
     try:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"AI生成エラー: {e}"
 
-def send_line_notify(message):
-    """LINEにメッセージを送る"""
-    api_url = "https://notify-api.line.me/api/notify"
-    headers = {"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"}
-    data = {"message": f"\n{message}"}
+def send_line_broadcast(text):
+    """LINE Messaging API (Broadcast) で送信"""
+    url = "https://api.line.me/v2/bot/message/broadcast"
     
-    requests.post(api_url, headers=headers, data=data)
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+    }
+    
+    payload = {
+        "messages": [
+            {
+                "type": "text",
+                "text": text
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code == 200:
+        print("LINE送信成功")
+    else:
+        print(f"LINE送信失敗: {response.status_code} {response.text}")
 
 def main():
-    if not GEMINI_API_KEY or not LINE_NOTIFY_TOKEN:
-        print("エラー: APIキーまたはLINEトークンが設定されていません。")
+    if not GEMINI_API_KEY or not LINE_CHANNEL_ACCESS_TOKEN:
+        print("エラー: APIキーが設定されていません。")
         return
 
-    print("ニュースを取得中...")
-    news_raw = get_nhk_news()
-    
-    if not news_raw:
-        print("ニュースが取得できませんでした。")
+    # 1. ニュース取得
+    news_data = get_news()
+    if not news_data:
+        # エラー通知を送るか、ここで終了するか
+        print("ニュース取得失敗のため終了します。")
         return
 
-    print("Geminiで要約中...")
-    summary = summarize_with_gemini(news_raw)
-    
-    # 日付を追加
-    today = datetime.now().strftime("%Y/%m/%d")
-    final_message = f"【NHK重要ニュース {today}】\n\n{summary}"
-    
-    print("LINEに送信中...")
-    send_line_notify(final_message)
-    print("完了")
+    # 2. AIによる選別・要約
+    print("Geminiで分析中...")
+    summary = summarize_news(news_data)
+
+    # 3. メッセージ作成
+    today = datetime.now().strftime('%Y/%m/%d')
+    message = f"【NHK重要ニュース {today}】\n\n{summary}"
+
+    # 4. LINE送信
+    send_line_broadcast(message)
 
 if __name__ == "__main__":
     main()
