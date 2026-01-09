@@ -3,6 +3,7 @@ import feedparser
 import requests
 import google.generativeai as genai
 from datetime import datetime
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 # --- 設定 ---
 # ユーザー指定のRSS URL
@@ -116,7 +117,8 @@ def main():
     summary = summarize_news(news_data)
 
     # 3. メッセージ作成
-    today = datetime.now().strftime('%Y/%m/%d')
+    today = datetime.now(ZoneInfo("Asia/Tokyo")).strftime('%Y/%m/%d')
+
     message = f"【重要ニュース {today}】\n\n{summary}"
 
     # 4. LINE送信
